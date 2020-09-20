@@ -7,9 +7,17 @@ frequencies is that the vast majority of these will go extinct in a handful of g
 my training set will be heavily biased towards samples that 1. have little to no information, and 2. aren't very interesting.
 It's hard to imagine being able to train an accurate model for those cases that do persist for a while if they are <1% of the total samples.
 
-Because I just want to quickly prototype a model to get the framework up, I'll just stick with the version with no conditioning even though
-it won't work well (but obviously nothing is going to work well on the first pass while being trained on my laptop).
-I'll just stick with datasets small enough to fit in memory and a basic fully-connected nn, focusing on getting the rough outline first.
+For now, just removing simulations that don't survive x generations, but in practice need to alter the C++ program so that I have balanced coverage (right now obviously I have many more examples of the high selection coefficient cases)
+
+It might be cool to train an ensemble from the best model of each type (CNN, LSTM, etc.)
+Just a note that perhaps it would be worth creating entirely new datasets for each type of model, as this will increase their independence
+(and thus improve the ensemble). Then when training the ensemble, I'd want to use an entirely new dataset again (the joys of being able to generate data at will...)
+
+Couple important notes so far.
+1. Tweaks to what data is fed to the model is the dominant effect so far (e.g. I don't think there's any model that will make good predictions if I just feed it the raw junk from every simulation)
+2. Balancing representation between parameter values helps a lot (I've only done this in a really crude way so far, but I get a better fit as it gets better balanced (even with a smaller training set so it isn't a size thing)
+3. Increasing time series length to 100 (from 50) seems to help quite a bit. Might be partially a CNN thing , as CNNs are effective at long dependencies whereas RNNs tend to have the forgetting problem for very long series, but not really surprising that it helps.
+
 """
 
 
@@ -25,7 +33,7 @@ import math
 from sklearn.preprocessing import Normalizer
 from sklearn.preprocessing import StandardScaler
 
-def test_train_valid_split(data, train_prop=0.6, valid_prop=0.2, test_prop=0.2):
+def test_train_valid_split(data, train_prop=0.95, valid_prop=0.03, test_prop=0.02):
     dataset_size = len(data.index)
     train_data = data.iloc[:int(train_prop*(dataset_size)), :]
     valid_data = data.iloc[int(train_prop*(dataset_size)):int((train_prop*(dataset_size)) + int(valid_prop*(dataset_size))), :]
@@ -41,13 +49,27 @@ def x_and_y_split(data):
 
 def insert_fix_prob(data):
     if data["ps"][0] == 100 and math.isclose(data["sc"][0], 0.0):
-        data.insert(0, "fix", 0.01)
+        data.insert(0, "fix", 0.0100)
     elif data["ps"][0] == 200 and math.isclose(data["sc"][0], 0.0):
-        data.insert(0, "fix", 0.005)
-    elif data["ps"][0] == 100 and math.isclose(data["sc"][0], 0.1):
-        data.insert(0, "fix", 0.176)
-    elif data["ps"][0] == 200 and math.isclose(data["sc"][0], 0.1):
-        data.insert(0, "fix", 0.176) # not a mistake, the values are the same
+        data.insert(0, "fix", 0.0050)
+    elif data["ps"][0] == 100 and math.isclose(data["sc"][0], 0.02):
+        data.insert(0, "fix", 0.0402)
+    elif data["ps"][0] == 100 and math.isclose(data["sc"][0], 0.04):
+        data.insert(0, "fix", 0.0765)
+    elif data["ps"][0] == 100 and math.isclose(data["sc"][0], 0.06):
+        data.insert(0, "fix", 0.1112)
+    elif data["ps"][0] == 100 and math.isclose(data["sc"][0], 0.08):
+        data.insert(0, "fix", 0.1438)
+    elif data["ps"][0] == 200 and math.isclose(data["sc"][0], 0.02):
+        data.insert(0, "fix", 0.0396)
+    elif data["ps"][0] == 200 and math.isclose(data["sc"][0], 0.04):
+        data.insert(0, "fix", 0.0761)
+    elif data["ps"][0] == 200 and math.isclose(data["sc"][0], 0.06):
+        data.insert(0, "fix", 0.1118)
+    elif data["ps"][0] == 200 and math.isclose(data["sc"][0], 0.08):
+        data.insert(0, "fix", 0.1446)
+    elif (data["ps"][0] == 100 or data["ps"][0] == 200) and math.isclose(data["sc"][0], 0.1):
+        data.insert(0, "fix", 0.176) # not a mistake, the values are the same to 3 decimals
     else:
         print("problem")
 
@@ -59,6 +81,8 @@ l = []
 
 
 for f in listdir(data_dir):
+    if math.isclose(float(re.search(r'HSE_[0-9]+_(.*?)_', f).group(1)), 0.0):
+        num_replicates=3000000
     data = pd.read_csv(data_dir + f, nrows=num_replicates, header=None, index_col=None)
     data.insert(0,"ps", int(re.search(r'HSE_(.*?)_', f).group(1)))
     data.insert(0,"sc", float(re.search(r'HSE_[0-9]+_(.*?)_', f).group(1)))
@@ -68,12 +92,13 @@ data = pd.concat(l, axis=0, ignore_index=True)
 data = data.fillna(value=0.0)
 
 # remove samples that went extinct early
-data.drop(data[np.isclose(data.iloc[:, 50], 0.0)].index, inplace=True)
+data.drop(data[np.isclose(data.iloc[:, 100], 0.0)].index, inplace=True)
+
 
 # shuffle data
 data = data.sample(frac=1).reset_index(drop=True)
 #split into test train valid
-train_data, valid_data, test_data = test_train_valid_split(data)
+train_data, valid_data, test_data = test_train_valid_split(data,)
 train_x, train_y = x_and_y_split(train_data)
 valid_x, valid_y = x_and_y_split(valid_data)
 test_x, test_y = x_and_y_split(test_data)
@@ -119,24 +144,70 @@ expand_train_x = np.expand_dims(train_x, axis=2)
 expand_valid_x = np.expand_dims(valid_x, axis=2)
 expand_test_x = np.expand_dims(test_x, axis=2)
 
+#tsc model
+# model = keras.models.Sequential()
+# model.add(keras.layers.Input((100,1)))
+# model.add(keras.layers.Conv1D(filters=6,kernel_size=7,padding='valid',activation='sigmoid'))
+# model.add(keras.layers.AveragePooling1D(pool_size=3))
+# model.add(keras.layers.Conv1D(filters=12,kernel_size=7,padding='valid',activation='sigmoid'))
+# model.add(keras.layers.AveragePooling1D(pool_size=3))
+# model.add(keras.layers.Flatten())
+# model.add(keras.layers.Dense(3, activation='relu', kernel_initializer='he_normal'))
+
+# model = keras.models.Sequential()
+# model.add(keras.layers.Input((100,1)))
+# model.add(keras.layers.Conv1D(filters=64,kernel_size=7,padding='same',activation='elu', kernel_initializer='he_normal'))
+# model.add(keras.layers.Conv1D(filters=64,kernel_size=7,padding='same',activation='elu', kernel_initializer='he_normal'))
+# model.add(keras.layers.MaxPooling1D(pool_size=2))
+# model.add(keras.layers.Conv1D(filters=128,kernel_size=3,padding='same',activation='elu', kernel_initializer='he_normal'))
+# model.add(keras.layers.Conv1D(filters=128,kernel_size=3,padding='same',activation='elu', kernel_initializer='he_normal'))
+# model.add(keras.layers.MaxPooling1D(pool_size=2))
+# model.add(keras.layers.Conv1D(filters=256,kernel_size=3,padding='same',activation='elu', kernel_initializer='he_normal'))
+# model.add(keras.layers.Conv1D(filters=256,kernel_size=3,padding='same',activation='elu', kernel_initializer='he_normal'))
+# model.add(keras.layers.MaxPooling1D(pool_size=2))
+# model.add(keras.layers.Flatten())
+# model.add(keras.layers.Dense(300, activation='elu', kernel_initializer='he_normal'))
+# model.add(keras.layers.Dropout(0.3))
+# model.add(keras.layers.Dense(3, activation='linear'))
+
 model = keras.models.Sequential()
-model.add(keras.layers.Input((50,1)))
-model.add(keras.layers.Conv1D(filters=32,kernel_size=7,padding='same',activation='relu', kernel_initializer='he_uniform'))
-model.add(keras.layers.Conv1D(filters=32,kernel_size=7,padding='same',activation='relu', kernel_initializer='he_uniform'))
-model.add(keras.layers.MaxPooling1D(pool_size=2, padding='same'))
-model.add(keras.layers.Conv1D(filters=32,kernel_size=5,padding='same',activation='relu', kernel_initializer='he_uniform'))
-model.add(keras.layers.Conv1D(filters=32,kernel_size=5,padding='same',activation='relu', kernel_initializer='he_uniform'))
+model.add(keras.layers.Input((100,1)))
+model.add(keras.layers.Conv1D(filters=64,kernel_size=7,padding='same', kernel_initializer='he_normal'))
+model.add(keras.layers.BatchNormalization())
+model.add(keras.layers.Activation('elu'))
+model.add(keras.layers.Conv1D(filters=64,kernel_size=7,padding='same', kernel_initializer='he_normal'))
+model.add(keras.layers.BatchNormalization())
+model.add(keras.layers.Activation('elu'))
 model.add(keras.layers.MaxPooling1D(pool_size=2))
-model.add(keras.layers.Conv1D(filters=64,kernel_size=3,padding='same',activation='relu', kernel_initializer='he_uniform'))
-model.add(keras.layers.Conv1D(filters=64,kernel_size=3,padding='same',activation='relu', kernel_initializer='he_uniform'))
+model.add(keras.layers.Conv1D(filters=128,kernel_size=3,padding='same', kernel_initializer='he_normal'))
+model.add(keras.layers.BatchNormalization())
+model.add(keras.layers.Activation('elu'))
+model.add(keras.layers.Conv1D(filters=128,kernel_size=3,padding='same', kernel_initializer='he_normal'))
+model.add(keras.layers.BatchNormalization())
+model.add(keras.layers.Activation('elu'))
+model.add(keras.layers.MaxPooling1D(pool_size=2))
+model.add(keras.layers.Conv1D(filters=256,kernel_size=3,padding='same', kernel_initializer='he_normal'))
+model.add(keras.layers.BatchNormalization())
+model.add(keras.layers.Activation('elu'))
+model.add(keras.layers.Conv1D(filters=256,kernel_size=3,padding='same', kernel_initializer='he_normal'))
+model.add(keras.layers.BatchNormalization())
+model.add(keras.layers.Activation('elu'))
 model.add(keras.layers.MaxPooling1D(pool_size=2))
 model.add(keras.layers.Flatten())
-model.add(keras.layers.Dense(100, activation='relu', kernel_initializer='he_uniform'))
+model.add(keras.layers.Dense(300, activation='elu', kernel_initializer='he_normal'))
+# model.add(keras.layers.Dropout(0.3))
 model.add(keras.layers.Dense(3, activation='linear'))
 
-model.compile(loss="mse", optimizer="Adam", metrics=[abs_dist])
+def scheduler(epoch, lr):
+    if epoch < 3:
+        return lr
+    else:
+        return lr * tf.math.exp(-0.2)
 
-history = model.fit(expand_train_x, scaled_train_y, epochs=30, validation_data=(expand_valid_x, scaled_valid_y))
+optimizer = tf.keras.optimizers.Adam(0.003)
+model.compile(loss="mse", optimizer=optimizer, metrics=[abs_dist])
+callback = tf.keras.callbacks.LearningRateScheduler(scheduler)
+history = model.fit(expand_train_x, scaled_train_y, epochs=25, validation_data=(expand_valid_x, scaled_valid_y), callbacks=[callback])
 # history = model.fit(train_x, scaled_train_y, epochs=20, validation_data=(valid_x, scaled_valid_y))
 
 # y_reg = model.predict(test_x[0:30, :])
