@@ -1,0 +1,101 @@
+pop_size_min = 50
+pop_size_max = 500
+sc_min = 0.0
+sc_max = 1.0
+min_survival = 0 # number of gens survived is min_survival - 2 (the starting and final freq are always recorded)
+max_time_steps = 60 # truncate trait frequencies at max_time_steps to avoid OOM issues
+num_trait_data = 1000
+batch_size = 1024
+
+model = tf.keras.models.Sequential()
+model.add(tf.keras.layers.Masking(mask_value = -1., input_shape=(None,1)))
+model.add(tf.keras.layers.Bidirectional(tf.keras.layers.RNN(tfa.rnn.LayerNormLSTMCell(75, recurrent_dropout=0.25), return_sequences=True)))
+model.add(tf.keras.layers.Bidirectional(tf.keras.layers.RNN(tfa.rnn.LayerNormLSTMCell(75, recurrent_dropout=0.25), return_sequences=False)))
+model.add(tf.keras.layers.Dropout(0.2))
+model.add(tf.keras.layers.Dense(30, activation='elu', kernel_initializer='he_normal'))
+model.add(tf.keras.layers.Dropout(0.2))
+model.add(tf.keras.layers.Dense(2))
+
+model.summary()
+
+#model.save('best_model_june11')
+#model.load_weights("checkpoints/20210611-052656checkpoint_layernorm_08")
+
+def scheduler(epoch, lr):
+    if epoch < 4:
+        return lr
+    else:
+        return lr * tf.math.exp(-0.1)
+
+scheduler_cb = tf.keras.callbacks.LearningRateScheduler(scheduler)
+earlystopping_cb = tf.keras.callbacks.EarlyStopping(patience=6, restore_best_weights=True)
+
+checkpoints = "checkpoints/" + datetime.now().strftime("%Y%m%d-%H%M%S")
+checkpoint_filepath = checkpoints + "checkpoint_layernorm_{epoch:02d}"
+
+model_checkpoint_cb = tf.keras.callbacks.ModelCheckpoint(
+    filepath=checkpoint_filepath,
+    save_weights_only=True,
+    monitor='val_loss',
+    mode='min',
+    save_best_only=False,
+    save_freq='epoch')
+
+optimizer = tf.keras.optimizers.Adam(0.01)
+model.compile(loss="mse", optimizer=optimizer, metrics=[tf.keras.metrics.MeanAbsoluteError()])
+
+history = model.fit(train_dataset, epochs=50, validation_data=validate_dataset, 
+                    callbacks=[model_checkpoint_cb, scheduler_cb, earlystopping_cb])
+
+
+Model: "sequential"
+_________________________________________________________________
+Layer (type)                 Output Shape              Param #   
+=================================================================
+masking (Masking)            (None, None, 1)           0         
+_________________________________________________________________
+bidirectional (Bidirectional (None, None, 150)         48900     
+_________________________________________________________________
+bidirectional_1 (Bidirection (None, 150)               138300    
+_________________________________________________________________
+dropout (Dropout)            (None, 150)               0         
+_________________________________________________________________
+dense (Dense)                (None, 30)                4530      
+_________________________________________________________________
+dropout_1 (Dropout)          (None, 30)                0         
+_________________________________________________________________
+dense_1 (Dense)              (None, 2)                 62        
+=================================================================
+Total params: 191,792
+Trainable params: 191,792
+Non-trainable params: 0
+
+
+Epoch 1/50
+586/586 [==============================] - 611s 956ms/step - loss: 0.0645 - mean_absolute_error: 0.1536 - val_loss: 0.0203 - val_mean_absolute_error: 0.0828
+Epoch 2/50
+586/586 [==============================] - 581s 918ms/step - loss: 0.0217 - mean_absolute_error: 0.0975 - val_loss: 0.0198 - val_mean_absolute_error: 0.0760
+Epoch 3/50
+586/586 [==============================] - 564s 893ms/step - loss: 0.0203 - mean_absolute_error: 0.0911 - val_loss: 0.0194 - val_mean_absolute_error: 0.0764
+Epoch 4/50
+586/586 [==============================] - 565s 894ms/step - loss: 0.0198 - mean_absolute_error: 0.0889 - val_loss: 0.0197 - val_mean_absolute_error: 0.0762
+Epoch 5/50
+586/586 [==============================] - 576s 913ms/step - loss: 0.0196 - mean_absolute_error: 0.0876 - val_loss: 0.0196 - val_mean_absolute_error: 0.0776
+Epoch 6/50
+586/586 [==============================] - 569s 897ms/step - loss: 0.0194 - mean_absolute_error: 0.0868 - val_loss: 0.0197 - val_mean_absolute_error: 0.0764
+Epoch 7/50
+586/586 [==============================] - 577s 915ms/step - loss: 0.0193 - mean_absolute_error: 0.0863 - val_loss: 0.0190 - val_mean_absolute_error: 0.0767
+Epoch 8/50
+586/586 [==============================] - 572s 901ms/step - loss: 0.0192 - mean_absolute_error: 0.0859 - val_loss: 0.0193 - val_mean_absolute_error: 0.0732
+Epoch 9/50
+586/586 [==============================] - 566s 896ms/step - loss: 0.0192 - mean_absolute_error: 0.0858 - val_loss: 0.0192 - val_mean_absolute_error: 0.0757
+Epoch 10/50
+586/586 [==============================] - 566s 895ms/step - loss: 0.0191 - mean_absolute_error: 0.0852 - val_loss: 0.0198 - val_mean_absolute_error: 0.0779
+Epoch 11/50
+586/586 [==============================] - 566s 896ms/step - loss: 0.0191 - mean_absolute_error: 0.0851 - val_loss: 0.0196 - val_mean_absolute_error: 0.0802
+Epoch 12/50
+586/586 [==============================] - 567s 897ms/step - loss: 0.0190 - mean_absolute_error: 0.0849 - val_loss: 0.0196 - val_mean_absolute_error: 0.0781
+Epoch 13/50
+586/586 [==============================] - 566s 896ms/step - loss: 0.0190 - mean_absolute_error: 0.0846 - val_loss: 0.0198 - val_mean_absolute_error: 0.0786
+
+(Chosen model is epoch 8.)
