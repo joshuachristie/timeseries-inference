@@ -17,14 +17,3 @@ for filename in os.listdir(directory):
     else:
         continue
 
-# test reading record
-
-# filenames = [f for f in os.listdir(directory) if f.endswith(".tfrecord")]
-# os.chdir(directory)
-# raw_dataset = tf.data.TFRecordDataset(filenames)
-# for raw_record in raw_dataset.take(10):
-#     example = tf.train.SequenceExample()
-#     example.ParseFromString(raw_record.numpy())
-#     print(example.context.feature['population_size'])
-#     print(example.feature_lists.feature_list['raw_trait_frequencies'].feature[0])
-
