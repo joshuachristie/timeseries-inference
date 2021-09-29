@@ -57,7 +57,7 @@ class LSTM():
         self.callbacks = [model_checkpoint_cb, scheduler_cb, earlystopping_cb]
         model.compile(loss=self.loss, optimizer=self.optimizer, metrics=self.metrics)
         
-        if train:
+        if not train:
             model.load_weights('best_model_june11')
             
         if verbose:

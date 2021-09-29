@@ -4,13 +4,11 @@ import tensorflow as tf
 
 class Dataset():
 
-    def __init__(self, data_directory="./data", train_prop=0.6, valid_prop=0.2, seed=42,
-                 tf_shuffle=True):
+    def __init__(self, data_directory="./data", train_prop=0.6, valid_prop=0.2, seed=42):
         self.data_directory = data_directory
         self.train_prop = train_prop
         self.valid_prop = valid_prop
         self.seed = seed
-        self.tf_shuffle = tf_shuffle
         self.number_train_files = None
         self.number_valid_files = None
         self.number_test_files = None
@@ -42,7 +40,7 @@ class Dataset():
             cycle_length=filepath_dataset.cardinality(),
             block_length=1,
             num_parallel_calls=tf.data.experimental.AUTOTUNE,
-            deterministic=not self.tf_shuffle)
+            deterministic=False)
 
         return dataset
 
